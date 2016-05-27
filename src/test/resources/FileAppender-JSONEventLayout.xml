@@ -2,8 +2,8 @@
 <Configuration status="INFO">
 
     <Appenders>
-        <File name="LogFile" fileName="test-with-locationInfo.log" append="false">
-            <JSONEventLayoutV1 locationInfo="${sys:log4j.locationInfo}" UserFields="app:my-test"/>
+        <File name="LogFile" fileName="${sys:test.logfile}" append="false" ignoreExceptions="false">
+            <JSONEventLayoutV1 locationInfo="${sys:log4j.locationInfo}" UserFields="app:my-test" messageParameters="${sys:log4j.messageParameters}"/>
         </File>
     </Appenders>
 

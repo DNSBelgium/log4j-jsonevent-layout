@@ -7,6 +7,7 @@ import net.minidev.json.JSONObject;
 import net.minidev.json.JSONValue;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.ThreadContext;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.junit.After;
@@ -22,17 +23,22 @@ import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertTrue;
 
 public class JSONEventLayoutV1AppenderTest {
-
-  public static final String PATH_LOG_FILE    = "test-with-locationInfo.log";
   public static final String PATH_CONFIG_FILE = "FileAppender-JSONEventLayout.xml";
+  public static int count = 0;
+  public String logFile = null;
 
   private boolean locationInfo = true;
 
   @Before
-  public void setLoggerConfig() {
+  public void setLoggerConfig() throws IOException {
+    logFile = "test-logfile-" + count++ + ".log";
     System.setProperty("org.apache.logging.log4j.level", "DEBUG");
     System.setProperty("log4j.configurationFile", PATH_CONFIG_FILE);
     System.setProperty("log4j.locationInfo", "true");
+    System.setProperty("log4j.messageParameters", "false");
+    System.setProperty("test.logfile", logFile);
+
+    LoggerContext.getContext(false).reconfigure();
   }
 
   @After
@@ -40,10 +46,9 @@ public class JSONEventLayoutV1AppenderTest {
     ThreadContext.clearAll();
     System.clearProperty("org.apache.logging.log4j.level");
     System.clearProperty("log4j.configurationFile");
-    FileUtils.deleteQuietly(new File(PATH_LOG_FILE));
-
+    System.clearProperty("log4j.messageParameters");
+    //FileUtils.deleteQuietly(new File(logFile));
   }
-
 
   @Test
   public void testAllLogEventsWithLocationInfo() throws IOException {
@@ -54,16 +59,70 @@ public class JSONEventLayoutV1AppenderTest {
   public void testAllLogEventsWithoutLocationInfo() throws IOException {
     locationInfo = false;
     System.setProperty("log4j.locationInfo", "false");
-    final LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
-    ctx.stop();
-    ctx.start();
+    LoggerContext loggerContext = LoggerContext.getContext(false);
+    loggerContext.reconfigure();
+
     testAllLogEvents();
+  }
+
+  @Test
+  public void testLogEventsWithParameters() throws IOException {
+    System.setProperty("log4j.messageParameters", "true");
+
+    LoggerContext loggerContext = LoggerContext.getContext(false);
+    loggerContext.reconfigure();
+
+    Logger logger = LogManager.getLogger("testLogEventsWithParameters");
+    logger.info("This is {} info", "great");
+    logger.info("The ultimate answer is {}", 42);
+    logger.info("All together. This is {} info.The ultimate answer is {}. Today it is {}", new Object[]{"great", 42, Boolean.TRUE});
+
+
+    List<String> lines = FileUtils.readLines(new File(logFile), Charset.forName("UTF-8"));
+    assertEquals(3, lines.size());
+
+    JSONObject json = (JSONObject) JSONValue.parse(lines.get(0));
+    assertProperty(json, "message", "This is great info");
+    JSONObject params = (JSONObject) json.get("message_parameters");
+    assertProperty(params, "param_0", "great");
+
+    json = (JSONObject) JSONValue.parse(lines.get(1));
+    assertProperty(json, "message", "The ultimate answer is 42");
+    params = (JSONObject) json.get("message_parameters");
+    assertProperty(params, "param_0", Integer.valueOf(42));
+
+    json = (JSONObject) JSONValue.parse(lines.get(2));
+    assertProperty(json, "message", "All together. This is great info.The ultimate answer is 42. Today it is true");
+    params = (JSONObject) json.get("message_parameters");
+    assertProperty(params, "param_0", "great");
+    assertProperty(params, "param_1", Integer.valueOf(42));
+    assertProperty(params, "param_2", Boolean.TRUE);
+  }
+
+  @Test
+  public void testLogMessageMapMessage() throws IOException {
+    Logger logger = LogManager.getLogger("testLogMessageMapMessage");
+
+    MessageMapMessage message = new MessageMapMessage("All together. This is {type} info.The ultimate answer is {answer}. Today it is {status}");
+    message.add("type", "great").add("answer", 42).add("status", Boolean.FALSE);
+
+    logger.info(message);
+
+    List<String> lines = FileUtils.readLines(new File(logFile), Charset.forName("UTF-8"));
+    assertEquals(1, lines.size());
+    JSONObject json = (JSONObject) JSONValue.parse(lines.get(0));
+
+    assertProperty(json, "message", "All together. This is great info.The ultimate answer is 42. Today it is false");
+    JSONObject params = (JSONObject) json.get("message_parameters");
+    assertProperty(params, "type", "great");
+    assertProperty(params, "answer", Integer.valueOf(42));
+    assertProperty(params, "status", Boolean.FALSE);
   }
 
 
   public void testAllLogEvents() throws IOException {
     new LoggerHelper().logSomeEvents();
-    List<String> lines = FileUtils.readLines(new File(PATH_LOG_FILE), Charset.forName("UTF-8"));
+    List<String> lines = FileUtils.readLines(new File(logFile), Charset.forName("UTF-8"));
 
     for (String line : lines) {
       assertTrue("Should be valid JSON", JSONValue.isValidJsonStrict(line));
